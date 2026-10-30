@@ -11,7 +11,7 @@ import pytest
 
 from bookstack_mcp import __main__ as cli
 from bookstack_mcp import __version__
-from bookstack_mcp.client import BookStackClient
+from bookstack_mcp.client import BookStackClient, RetryPolicy
 from bookstack_mcp.config import Settings
 
 BASE_URL = "https://docs.example.com"
@@ -40,7 +40,14 @@ def settings() -> Settings:
 
 
 def client_for(handler: Handler) -> BookStackClient:
-    return BookStackClient(BASE_URL, "id", "secret", transport=httpx2.MockTransport(handler))
+    """Built like the startup probe: one attempt per call, so only the startup loop retries."""
+    return BookStackClient(
+        BASE_URL,
+        "id",
+        "secret",
+        transport=httpx2.MockTransport(handler),
+        retry=RetryPolicy(max_attempts=1),
+    )
 
 
 def use_handler(monkeypatch: pytest.MonkeyPatch, handler: Handler) -> None:

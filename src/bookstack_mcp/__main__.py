@@ -16,7 +16,7 @@ import sys
 from typing import NoReturn
 
 from bookstack_mcp import __version__
-from bookstack_mcp.client import BookStackClient, BookStackError, SystemInfo
+from bookstack_mcp.client import BookStackClient, BookStackError, RetryPolicy, SystemInfo
 from bookstack_mcp.client.errors import (
     BookStackRateLimited,
     BookStackServerError,
@@ -32,6 +32,8 @@ SYSTEM_ATTEMPTS = 3
 SYSTEM_RETRY_DELAY_S = 2.0
 SYSTEM_TIMEOUT_S = 10.0
 """Per-attempt timeout at startup, so a hanging BookStack cannot stall the MCP handshake."""
+_NO_RETRY = RetryPolicy(max_attempts=1)
+"""The startup probe retries on its own schedule, not the client's."""
 _RETRYABLE = (BookStackUnavailable, BookStackServerError, BookStackRateLimited)
 
 
@@ -70,13 +72,17 @@ def main(argv: list[str] | None = None) -> NoReturn:
     sys.exit(0)
 
 
-def make_client(settings: Settings, *, timeout: float | None = None) -> BookStackClient:
+def make_client(
+    settings: Settings, *, timeout: float | None = None, retry: RetryPolicy | None = None
+) -> BookStackClient:
     return BookStackClient(
         settings.url,
         settings.token_id.get_secret_value(),
         settings.token_secret,
         timeout=settings.timeout_seconds if timeout is None else timeout,
         verify=settings.ca_bundle or settings.verify_tls,
+        requests_per_minute=settings.requests_per_minute,
+        retry=retry,
     )
 
 
@@ -132,7 +138,7 @@ async def startup_system(settings: Settings, client: BookStackClient) -> SystemI
 
 async def serve(settings: Settings) -> None:
     timeout = min(settings.timeout_seconds, SYSTEM_TIMEOUT_S)
-    async with make_client(settings, timeout=timeout) as probe:
+    async with make_client(settings, timeout=timeout, retry=_NO_RETRY) as probe:
         system = await startup_system(settings, probe)
     async with make_client(settings) as client:
         mcp = build_server(settings, client, system)
