@@ -14,7 +14,7 @@ All code lives under `src/bookstack_mcp/`:
 - `config.py` reads settings from environment variables (see `.env.example`).
 - `logs.py` writes JSON logs to stderr.
 - `client/` is the async BookStack API client on httpx2: auth, errors, retries, rate limit.
-- `tools/` holds one module per toolset: `core_read.py`, `core_write.py`, `structure.py`, `collab.py`, `files.py`, `admin.py`.
+- `tools/` holds one module per toolset: `core_read.py`, `core_write.py`, `structure.py`, `collab.py`, `files.py`, `admin.py`. `tools/_base.py` has the `@tool` decorator, `Deps` and the error mapping; see "Writing a tool" below.
 - `editing/` holds pure functions for page source, outline, grep, find-and-replace, append and verification.
 - `content/` builds the markdown view and chunks.
 - `fetch/` is the SSRF-guarded URL fetcher.
@@ -48,6 +48,91 @@ CI runs ruff, mypy, the unit and protocol tests, `pip-audit` and a TruffleHog se
 - Never write to stdout: in stdio mode it carries only MCP messages. Log with `logging`, which goes to stderr.
 - Never log page content, markdown, HTML, file data, tokens, secrets, passwords or query strings.
 - Errors reach the model as FastMCP `ToolError`, stating what failed, BookStack's message, and how to fix it.
+
+### Writing a tool
+
+A tool is an async function in a `tools/` module, declared with `@tool(...)`. Nothing else
+needs wiring: `build_server` finds every module-level tool in `bookstack_mcp.tools` and
+registers it with its tags and annotations.
+
+```python
+from typing import Annotated
+
+from pydantic import BaseModel, Field
+
+from bookstack_mcp.config import Toolset
+from bookstack_mcp.tools import CurrentDeps, Deps, tool
+
+
+class PageSummary(BaseModel):
+    id: int
+    name: str
+    url: str
+
+
+@tool(Toolset.CORE, write=True, idempotent=True, needs={"changelog"})
+async def rename_page(
+    page_id: Annotated[int, Field(description="The page's id.", ge=1)],
+    name: Annotated[str, Field(description="The new name.", min_length=1, max_length=255)],
+    deps: Deps = CurrentDeps(),
+) -> PageSummary:
+    """Rename a page. The docstring is the tool description the model sees."""
+    page = await deps.client.put_json(f"/pages/{page_id}", {"name": name})
+    return PageSummary(id=page["id"], name=page["name"], url=deps.links.page(page["id"]))
+```
+
+- `@tool(toolset, write=..., destructive=..., idempotent=..., open_world=..., needs=...)`:
+  - the toolset gives the tool's toolset tag; `write=True` for anything that changes
+    BookStack, `destructive=True` (implies `write`) for deletes.
+  - Annotations follow: `readOnlyHint = not write`, `destructiveHint = destructive`,
+    `idempotentHint = idempotent or not write`, `openWorldHint = open_world` (only for
+    tools reaching beyond BookStack).
+  - `needs` lists `Features` field names (`client/version.py`); on an instance without them
+    the tool is hidden and listed in one startup log line.
+  - The function name is the tool name (override with `name=`); a docstring is required.
+- Visibility, applied by `build_server` in this order: only the configured toolsets
+  (`enable(tags=..., only=True)`), minus `write` in read-only mode, minus `destructive`
+  unless deletes are allowed, minus tools the BookStack version cannot serve.
+- Dependencies: add a `deps: Deps = CurrentDeps()` parameter. `Deps` has `client`
+  (`BookStackClient`), `settings`, `system` (`SystemInfo` from startup), `features` and
+  `links`. FastMCP hides the parameter from the schema. Never use module globals for these.
+- Inputs: annotate parameters with `Annotated[..., Field(description=...)]`; return a pydantic
+  model. Unknown extra arguments are dropped (and their names logged at DEBUG), not rejected.
+- Errors: raise, don't catch. Every call is wrapped by `tools._base.tool_call`, which turns
+  `BookStackError` (message, field errors, hint), `EditingError` and `InvalidChunkRequest`
+  into a `ToolError`. For other expected failures raise `ToolError("what failed; how to fix
+  it")` yourself. Anything else is masked as a generic error.
+- Logging: `tool_call` logs one line per call (`tool`, `request_id`, `duration_ms`,
+  `outcome`) and tags the client's request lines with the same `request_id`. Log extra
+  context only with field names from `logs.ALLOWED_FIELDS`.
+- Resources and prompts must carry a toolset tag too (`tags={"core"}`), or the toolset
+  allowlist hides them. `build_server` does not register any yet; the first task that adds
+  one extends it.
+
+Protocol tests use `tests/protocol/conftest.py`: `make_server(tools=[...], **settings)` builds
+a server with only the given tools around a real `BookStackClient` whose transport is the
+`fake_bookstack` fixture; `json_logs` captures the JSON log lines.
+
+```python
+from fastmcp import Client
+
+from bookstack_mcp.tools.core_write import rename_page
+
+
+async def test_rename_page(make_server, fake_bookstack):
+    fake_bookstack.add("PUT", "/api/pages/3", {"id": 3, "name": "New"})
+    async with Client(make_server(tools=[rename_page])) as mcp:
+        result = await mcp.call_tool("rename_page", {"page_id": 3, "name": "New"})
+    assert result.structured_content["name"] == "New"
+
+
+async def test_rename_page_hidden_when_read_only(make_server):
+    async with Client(make_server(tools=[rename_page], read_only=True)) as mcp:
+        assert "rename_page" not in {t.name for t in await mcp.list_tools()}
+```
+
+Use `raise_on_error=False` on `call_tool` to inspect an error result. These tests prove MCP
+behaviour and error mapping only; what BookStack does is proven by integration tests.
 
 ### Commits
 
