@@ -14,9 +14,9 @@ All code lives under `src/bookstack_mcp/`:
 - `config.py` reads settings from environment variables (see `.env.example`).
 - `logs.py` writes JSON logs to stderr.
 - `client/` is the async BookStack API client on httpx2: auth, errors, retries, rate limit.
-- `tools/` holds one module per toolset: `core_read.py`, `core_write.py`, `structure.py`, `collab.py`, `files.py`, `admin.py`. `tools/_base.py` has the `@tool` decorator, `Deps` and the error mapping; see "Writing a tool" below.
+- `tools/` holds one module per tool, named after it (`search.py`, `read_page.py`, `edit_page.py`, ...); the toolset comes from the `@tool(...)` decorator, not the module. Related tools may share a module. `tools/_base.py` has the `@tool` decorator, `Deps` and the error mapping; `tools/page_write.py` is the shared verified write path for page edits (stale check, shrink guard, write, re-read, verify). See "Writing a tool" below.
 - `editing/` holds pure functions for page source, outline, grep, find-and-replace, append and verification.
-- `content/` builds the markdown view and chunks.
+- `content/` builds the markdown view (`markdown_view.py`) and chunks (`chunk.py`).
 - `fetch/` is the SSRF-guarded URL fetcher.
 
 Tests:
