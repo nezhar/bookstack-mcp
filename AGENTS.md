@@ -24,6 +24,7 @@ Tests:
 - `tests/unit/` for pure logic.
 - `tests/protocol/` drives the server through the FastMCP in-memory client.
 - `tests/integration/` runs against a real BookStack in Docker.
+  `tests/integration/conftest.py` starts `tests/integration/compose.yml` (project `bsmcp-it`, port 6875), provisions admin and viewer API tokens, and provides the fixtures `bookstack`, `admin_client`, `viewer_client`, `sandbox_book` and `tinker`. The stack keeps running between sessions; `BSMCP_IT_DOWN=1` removes it afterwards.
 
 ## Commands
 
