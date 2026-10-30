@@ -1,0 +1,41 @@
+# Throwaway BookStack for the integration tests. Start it with
+#   docker compose -f tests/integration/compose.yml -p bsmcp-it up -d
+# Every password, key and token here is a test-only value for this local instance.
+name: bsmcp-it
+
+services:
+  db:
+    image: mariadb:11
+    environment:
+      MARIADB_ROOT_PASSWORD: bsmcp-it-root
+      MARIADB_DATABASE: bookstackapp
+      MARIADB_USER: bookstack
+      MARIADB_PASSWORD: bsmcp-it-db
+    healthcheck:
+      # The image ships mariadb-admin only; a mysqladmin check never turns healthy.
+      test: ["CMD-SHELL", "mariadb-admin ping -h 127.0.0.1 -u root -p\"$$MARIADB_ROOT_PASSWORD\" --silent"]
+      interval: 10s
+      retries: 10
+      start_period: 30s
+
+  bookstack:
+    image: lscr.io/linuxserver/bookstack:${BOOKSTACK_IMAGE_TAG:-version-v26.09.2}
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      TZ: Etc/UTC
+      APP_URL: http://localhost:6875
+      # Test-only key (base64: + `openssl rand -base64 32`); never use it for a real instance.
+      APP_KEY: base64:Rs4S9fAvrexfMq+RxRyWkk+PuFQPJb+k8vC0mUjE2hA=
+      DB_HOST: db
+      DB_PORT: "3306"
+      DB_DATABASE: bookstackapp
+      DB_USERNAME: bookstack
+      DB_PASSWORD: bsmcp-it-db
+      # Raised for this test instance only; real instances keep the default of 180 per minute.
+      API_REQUESTS_PER_MIN: "5000"
+    ports:
+      - "6875:80"
