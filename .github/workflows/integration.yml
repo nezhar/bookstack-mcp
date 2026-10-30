@@ -34,9 +34,23 @@ jobs:
       - name: Install dependencies
         run: uv sync --frozen
 
+      # The stack stays up after the tests for the quick-start check; the last step removes it.
       - name: Integration tests
-        run: RUN_INTEGRATION=1 BSMCP_IT_DOWN=1 uv run pytest tests/integration -m integration
+        run: RUN_INTEGRATION=1 uv run pytest tests/integration -m integration
+
+      # The README's quick start: `bookstack-mcp check` against the fixture, with the admin
+      # token the fixture provisions (test-only values from tests/integration/conftest.py).
+      - name: Quick start check
+        env:
+          BOOKSTACK_URL: http://localhost:6875
+          BOOKSTACK_TOKEN_ID: bsmcp-it-admin-0000000000000000
+          BOOKSTACK_TOKEN_SECRET: bsmcp-it-admin-secret-000000000
+        run: uv run bookstack-mcp check
 
       - name: BookStack logs
         if: failure()
         run: docker compose -f tests/integration/compose.yml -p bsmcp-it logs bookstack
+
+      - name: Remove the BookStack stack
+        if: always()
+        run: docker compose -f tests/integration/compose.yml -p bsmcp-it down -v
