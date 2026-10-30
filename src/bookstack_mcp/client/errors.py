@@ -119,9 +119,22 @@ class BookStackRateLimited(BookStackError):
 
 
 class BookStackServerError(BookStackError):
-    """5xx: BookStack or a proxy in front of it failed."""
+    """5xx: BookStack or a proxy in front of it failed. ``retry_after_s`` is set when the
+    response said when to try again (such as a 503 with ``Retry-After``)."""
 
     default_hint = "Try again later; if it persists, check the BookStack server logs."
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        retry_after_s: float | None = None,
+        status: int | None = None,
+        code: int | None = None,
+        hint: str | None = None,
+    ) -> None:
+        self.retry_after_s = retry_after_s
+        super().__init__(message, status=status, code=code, hint=hint)
 
 
 class BookStackUnavailable(BookStackError):
@@ -260,7 +273,10 @@ def error_for_status(status: int, headers: Mapping[str, str], content: bytes) ->
         )
     if status >= 500:
         return BookStackServerError(
-            message or "BookStack answered with a server error.", status=status, code=code
+            message or "BookStack answered with a server error.",
+            retry_after_s=parse_retry_after(headers),
+            status=status,
+            code=code,
         )
     if 300 <= status < 400:
         return BookStackError(
