@@ -191,7 +191,8 @@ async def update_page(
         content = content.model_copy(update={"notes": []})
         if converted:
             notes.append(
-                f"The page was converted from {converted[0]} to {field}. Its editor only "
+                f"The page {'would be' if dry_run else 'was'} converted from {converted[0]} "
+                f"to {field}. Its editor only "
                 "changes when the API user's role has the editor-change permission."
             )
         if dry_run:
