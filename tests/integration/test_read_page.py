@@ -18,9 +18,8 @@ from .conftest import BookStackInstance, _expect, api
 
 pytestmark = pytest.mark.integration
 
-MARKDOWN = (
-    "Lead paragraph.\n\n# Setup\n\nInstall it.\n\n## Linux\n\nUse apt.\n\n# Usage\n\nRun it.\n"
-)
+# No trailing newline: BookStack trims every request field (TrimStrings middleware).
+MARKDOWN = "Lead paragraph.\n\n# Setup\n\nInstall it.\n\n## Linux\n\nUse apt.\n\n# Usage\n\nRun it."
 HTML = (
     "<p>Lead &amp; paragraph.</p>"
     "<h2>Setup</h2><p>Install <strong>the tool</strong> first.</p>"
@@ -63,7 +62,7 @@ async def test_markdown_page(
     out = await read(mcp, page_id=page["id"])
 
     assert out["source_field"] == "markdown"
-    assert out["content"] == MARKDOWN
+    assert out["content"] == MARKDOWN == page["markdown"]
     assert out["book_id"] == sandbox_book
     assert out["updated_at"] == page["updated_at"]
     assert out["url"].endswith(f"/link/{page['id']}")
