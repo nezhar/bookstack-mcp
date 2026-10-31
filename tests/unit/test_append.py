@@ -55,7 +55,27 @@ def test_after_heading_markdown() -> None:
 def test_after_heading_on_last_line_and_crlf() -> None:
     assert insert("# T", "x", "markdown", position="after_heading", section="T") == "# T\n\nx"
     out = insert("# T\r\nbody", "x", "markdown", position="after_heading", section="T")
-    assert out == "# T\n\nx\r\nbody"
+    assert out == "# T\n\nx\n\nbody"
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("# H\nPara\n", "# H\n\nNew text\n\nPara\n"),
+        ("# H\n## Sub\n", "# H\n\nNew text\n\n## Sub\n"),
+        ("# H\n\nPara\n", "# H\n\nNew text\n\nPara\n"),
+        ("# H  \n  \nPara", "# H  \n\nNew text\n  \nPara"),
+        ("# H\n\n", "# H\n\nNew text\n\n"),
+    ],
+)
+def test_after_heading_markdown_keeps_the_next_block_apart(text: str, expected: str) -> None:
+    out = insert(text, "New text", "markdown", position="after_heading", section="H")
+    assert out == expected
+
+
+def test_after_heading_html_without_line_break() -> None:
+    out = insert("<h2>H</h2><p>P</p>", "<p>New</p>", "html", position="after_heading", section="H")
+    assert out == "<h2>H</h2>\n<p>New</p>\n<p>P</p>"
 
 
 HTML = '<h2 id="a">Setup</h2>\n<p>one</p>\n<h3>Sub</h3><p>two</p>\n<h2>Usage</h2><p>u</p>'

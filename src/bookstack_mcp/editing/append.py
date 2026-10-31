@@ -34,6 +34,8 @@ Position = Literal["end", "section_end", "after_heading"]
 
 _HTML_TAG = re.compile(r"</?[a-zA-Z][^>]*>|<!--")
 _BLANK_LINE = re.compile(r"\n[ \t]*(?:\r?\n)+")
+_STARTS_BLANK = re.compile(r"[ \t]*\r?\n[ \t]*\r?\n")
+_LINE_BREAK = re.compile(r"^\r?\n")
 
 
 def insert(
@@ -86,7 +88,14 @@ def insert(
         else:
             at = _back_over_space(text, heading_end, heading.offset + heading.section_length)
     before, after = text[:at], text[at:]
-    return before + (separator if before else "") + content + after
+    tail = ""
+    if position == "after_heading" and after.strip() and not _STARTS_BLANK.match(after):
+        # Keep the content its own block: without a blank line after it, markdown
+        # would merge it into the paragraph below. The separator replaces the
+        # heading's own line break.
+        tail = separator
+        after = _LINE_BREAK.sub("", after, count=1)
+    return before + (separator if before else "") + content + tail + after
 
 
 def prepare_content(content: str, field: SourceField) -> str:
