@@ -40,11 +40,24 @@ _SPACE = re.compile(r"\s+")
 
 
 @dataclass(frozen=True, slots=True)
+class Removed:
+    """A fragment that may occur at most ``remaining`` times in the stored text.
+
+    Occurrences are counted on normalised text, or with ``raw`` on the raw text with
+    whitespace collapsed (for markup-only changes, whose normalised text is unchanged).
+    """
+
+    fragment: str
+    remaining: int = 0
+    raw: bool = False
+
+
+@dataclass(frozen=True, slots=True)
 class Checks:
-    """Fragments that must, and must not, appear in the stored text after a write."""
+    """Fragments that must appear in the stored text, and removed fragments that must not."""
 
     must_contain: list[str]
-    must_not_contain: list[str]
+    must_not_contain: list[Removed]
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,17 +93,29 @@ def checks_for_edits(
     """Build the checks for a chain of edits that turned ``before`` into ``after``.
 
     Each non-empty ``new_string`` still present in ``after`` must be stored. An
-    ``old_string`` must be gone only when it is gone from ``after`` and the new text
-    cannot prove the edit landed: its ``new_string`` is empty, was overwritten by a
-    later edit, or already existed in ``before``.
+    ``old_string`` is checked when the new text cannot prove the edit landed (its
+    ``new_string`` is empty, was overwritten by a later edit, or already existed in
+    ``before``) and ``after`` holds fewer of it than ``before``, or none: the stored
+    text may then hold no more of it than ``after``. Counting, not presence, keeps
+    removed text that also occurs elsewhere checkable.
+
+    Occurrences are counted on normalised text, except when the old text's
+    normalised form is empty or contained in the new one's (a markup-only change
+    such as a link's ``href`` or ``<b>`` to ``<em>``): those are counted on the raw
+    text, which still shows whether the write stuck.
     """
     must_contain = [e.new_string for e in edits if e.new_string and e.new_string in after]
-    must_not_contain = [
-        e.old_string
-        for e in edits
-        if e.old_string not in after
-        and (not e.new_string or e.new_string not in after or contains(before, e.new_string, field))
-    ]
+    must_not_contain: list[Removed] = []
+    for e in edits:
+        if e.new_string and e.new_string in after and not contains(before, e.new_string, field):
+            continue
+        old_text = normalise(e.old_string, field)
+        removed = Removed(
+            e.old_string, raw=not old_text or old_text in normalise(e.new_string, field)
+        )
+        left = _count(after, removed, field)
+        if left == 0 or left < _count(before, removed, field):
+            must_not_contain.append(Removed(removed.fragment, left, removed.raw))
     return Checks(must_contain, must_not_contain)
 
 
@@ -102,9 +127,19 @@ def checks_for_insert(content: str, field: SourceField) -> Checks:
 def verify(stored: str, field: SourceField, checks: Checks) -> Verification:
     """Run ``checks`` against the source read back after the write. Never raises."""
     missing = sum(1 for f in checks.must_contain if not contains(stored, f, field))
-    present = sum(1 for f in checks.must_not_contain if contains(stored, f, field))
+    present = sum(1 for r in checks.must_not_contain if _count(stored, r, field) > r.remaining)
     failures = missing + present
     return Verification(failures == 0, failures)
+
+
+def _count(text: str, removed: Removed, field: SourceField) -> int:
+    """Count ``removed.fragment`` in ``text`` on normalised or whitespace-collapsed raw text."""
+    if not removed.raw:
+        return normalise(text, field).count(normalise(removed.fragment, field))
+    needle = _collapse(removed.fragment)
+    if not needle:  # whitespace only: count it exactly
+        return text.count(removed.fragment)
+    return _collapse(text).count(needle)
 
 
 def _collapse(text: str) -> str:
