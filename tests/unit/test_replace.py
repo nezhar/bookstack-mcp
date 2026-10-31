@@ -48,6 +48,23 @@ def test_ambiguous_anchor_lists_first_three_with_context() -> None:
         assert len(m) <= 120 + 3 + 120 + 2
 
 
+@pytest.mark.parametrize(
+    ("text", "old", "offsets"),
+    [("ababa", "aba", [0, 2]), ("a\n\n\nb", "\n\n", [1, 2]), ("aaaa", "aa", [0, 1, 2])],
+)
+def test_overlapping_occurrences_are_ambiguous(text: str, old: str, offsets: list[int]) -> None:
+    with pytest.raises(AnchorAmbiguous) as err:
+        apply_edits(text, [Edit(old, "X")])
+    assert err.value.count == len(offsets)
+    assert err.value.matches == [excerpt(text, at, at + len(old)) for at in offsets]
+
+
+def test_replace_all_keeps_non_overlapping_semantics() -> None:
+    result = apply_edits("ababa", [Edit("aba", "X", replace_all=True)])
+    assert result.text == "Xba"
+    assert result.applied[0].occurrences_replaced == 1
+
+
 def test_not_found_with_whitespace_near_miss() -> None:
     text = "<p>Hello\n    world, again</p>"
     with pytest.raises(AnchorNotFound) as err:

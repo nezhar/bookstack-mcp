@@ -99,15 +99,17 @@ def apply_edits(text: str, edits: Sequence[EditLike]) -> EditResult:
             raise InvalidEdit(index, "old_string must not be empty.")
         if old == new:
             raise InvalidEdit(index, "old_string and new_string are identical.")
-        count = current.count(old)
-        if count == 0:
-            raise AnchorNotFound(index, _near_miss(current, old))
-        if count > 1 and not edit.replace_all:
-            raise AnchorAmbiguous(index, count, _first_excerpts(current, old))
         first = current.find(old)
+        if first == -1:
+            raise AnchorNotFound(index, _near_miss(current, old))
         if edit.replace_all:
+            count = current.count(old)
             current = current.replace(old, new)
         else:
+            # Overlapping occurrences count too: "aba" occurs twice in "ababa".
+            count = len(_occurrences(current, old))
+            if count > 1:
+                raise AnchorAmbiguous(index, count, _first_excerpts(current, old))
             current = current[:first] + new + current[first + len(old) :]
         applied.append(AppliedEdit(index, count, excerpt(current, first, first + len(new))))
     return EditResult(current, applied)
@@ -120,13 +122,20 @@ def excerpt(text: str, start: int, end: int, radius: int = CONTEXT_RADIUS) -> st
     return (ELLIPSIS if lo > 0 else "") + text[lo:hi] + (ELLIPSIS if hi < len(text) else "")
 
 
-def _first_excerpts(text: str, needle: str) -> list[str]:
-    found: list[str] = []
+def _occurrences(text: str, needle: str) -> list[int]:
+    """Offsets of every occurrence of ``needle``, overlapping ones included."""
+    found: list[int] = []
     at = text.find(needle)
-    while at != -1 and len(found) < AMBIGUOUS_SHOWN:
-        found.append(excerpt(text, at, at + len(needle)))
-        at = text.find(needle, at + len(needle))
+    while at != -1:
+        found.append(at)
+        at = text.find(needle, at + 1)
     return found
+
+
+def _first_excerpts(text: str, needle: str) -> list[str]:
+    return [
+        excerpt(text, at, at + len(needle)) for at in _occurrences(text, needle)[:AMBIGUOUS_SHOWN]
+    ]
 
 
 def _near_miss(text: str, needle: str) -> str | None:
