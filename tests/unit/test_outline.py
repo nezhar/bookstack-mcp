@@ -80,6 +80,14 @@ def test_markdown_heading_forms() -> None:
     ]
 
 
+def test_only_newlines_end_markdown_lines() -> None:
+    text = "intro\u2028# Fake\nform\x0c# Feed\n# Real\r\nbody\n## Last"
+    outline = build_outline(text, "markdown")
+    assert [(h.text, h.offset) for h in outline] == [("Real", 25), ("Last", 38)]
+    assert text[25:31] == "# Real"
+    assert text[38:] == "## Last"
+
+
 def test_html_headings_with_nested_tags_entities_and_ids() -> None:
     html = (
         '<h1 id="bkmrk-intro">Intro &amp; <em>Overview</em></h1><p>a</p>'

@@ -35,6 +35,8 @@ from bookstack_mcp.editing.source import SourceField
 _MD_HEADING = re.compile(r"^(#{1,6})[ \t]+(.+?)(?:[ \t]+#+)?[ \t]*$")
 _MD_FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
 _HTML_HEADING = re.compile(r"<h([1-6])\b([^>]*)>([\s\S]*?)</h\1\s*>", re.IGNORECASE)
+# Only \n (and \r\n) end a line; str.splitlines would also split on U+2028, \x0c and others.
+_LINE = re.compile(r"[^\n]*\n|[^\n]+")
 _HTML_ID = re.compile(r"""(?:^|\s)id\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+))""", re.IGNORECASE)
 
 
@@ -96,7 +98,7 @@ def _markdown_headings(text: str) -> list[_RawHeading]:
     found: list[_RawHeading] = []
     fence: str | None = None
     offset = 0
-    for line in text.splitlines(keepends=True):
+    for line in _LINE.findall(text):
         stripped = line.rstrip("\r\n")
         fence_match = _MD_FENCE.match(stripped)
         if fence is None:
