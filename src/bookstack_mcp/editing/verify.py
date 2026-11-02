@@ -24,9 +24,11 @@
 """Check, after a write, that BookStack stored what was sent.
 
 BookStack rewrites stored HTML (ids on headings and paragraphs, formatting), so the
-comparison is on normalised text, not bytes.
+comparison is on normalised text, not bytes. Fragments carrying markup are compared on
+the markup itself, with BookStack's rewrites undone on both sides.
 """
 
+import html
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -37,6 +39,12 @@ from bookstack_mcp.editing.replace import EditLike
 from bookstack_mcp.editing.source import SourceField
 
 _SPACE = re.compile(r"\s+")
+_TAG = re.compile(r"<[A-Za-z/!][^>]*>")
+# What BookStack changes when it saves HTML: ids on top-level elements, `/>` endings and
+# single-quoted attributes.
+_BOOKSTACK_ID = re.compile(r'\s+id="bkmrk-[^"]*"')
+_SELF_CLOSING = re.compile(r"\s*/>")
+_SINGLE_QUOTED = re.compile(r"=\s*'([^']*)'")
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,13 +86,17 @@ def normalise(text: str, field: SourceField) -> str:
 def contains(haystack: str, fragment: str, field: SourceField) -> bool:
     """Whether ``fragment`` occurs in ``haystack`` once both are normalised.
 
-    A fragment that normalises to nothing (markup only, such as ``<hr>``) is looked
-    for in the raw text with whitespace collapsed instead.
+    On HTML, a fragment holding a tag (``<b>a</b>``, ``<hr>``) must occur in the markup,
+    so added formatting is checked and not just its text. A fragment that is not visible
+    text, such as an attribute (``href="new"``), may match the markup too.
     """
     needle = normalise(fragment, field)
-    if not needle:
-        return _collapse(fragment) in _collapse(haystack)
-    return needle in normalise(haystack, field)
+    if field != "html":
+        return (needle or _collapse(fragment)) in _collapse(haystack)
+    in_markup = _markup(fragment) in _markup(haystack)
+    if not needle or _TAG.search(fragment):
+        return in_markup
+    return needle in normalise(haystack, field) or in_markup
 
 
 def checks_for_edits(
@@ -139,8 +151,18 @@ def _count(text: str, removed: Removed, field: SourceField) -> int:
     needle = _collapse(removed.fragment)
     if not needle:  # whitespace only: count it exactly
         return text.count(removed.fragment)
+    if field == "html":
+        return _markup(text).count(_markup(removed.fragment))
     return _collapse(text).count(needle)
 
 
 def _collapse(text: str) -> str:
     return _SPACE.sub(" ", text).strip()
+
+
+def _markup(text: str) -> str:
+    """HTML with BookStack's save-time rewrites undone, entities decoded, whitespace collapsed."""
+    text = _BOOKSTACK_ID.sub("", text)
+    text = _SELF_CLOSING.sub(">", text)
+    text = _SINGLE_QUOTED.sub(r'="\1"', text)
+    return _collapse(html.unescape(text))

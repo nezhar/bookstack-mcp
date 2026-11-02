@@ -107,12 +107,13 @@ def test_insert_checks_use_the_wrapped_plain_text() -> None:
         ("<p>word</p>", "<h2>word</h2>"),
     ],
 )
-def test_markup_only_html_edit_is_checked_on_raw_text(old: str, new: str) -> None:
+def test_markup_only_html_edit_is_checked_on_markup(old: str, new: str) -> None:
     before = f"<p>See</p>\n{old}\n<p>word Link</p>"
     edits = [Edit(old, new)]
     after = apply_edits(before, edits).text
     checks = checks_for_edits(before, after, edits, "html")
-    assert checks.must_not_contain == [Removed(old, 0, raw=True)]
+    # The new markup itself must be stored, which proves the edit.
+    assert checks.must_contain == [new]
     stored = after.replace("<p>", '<p id="bkmrk-1">')
     assert verify(stored, "html", checks).verified
     # A write that did not stick still holds the old markup.
@@ -155,3 +156,29 @@ def test_unchanged_count_without_proof_adds_no_check() -> None:
     edits = [Edit("A", "B"), Edit("B", "A")]
     checks = checks_for_edits(before, apply_edits(before, edits).text, edits, "markdown")
     assert Removed("A") not in checks.must_not_contain
+
+
+def test_attribute_only_html_edit_verifies_on_markup() -> None:
+    before = '<p><a href="old">Link</a></p>'
+    edits = [Edit('href="old"', 'href="new"')]
+    after = apply_edits(before, edits).text
+    checks = checks_for_edits(before, after, edits, "html")
+    stored = after.replace("<p>", '<p id="bkmrk-link">')
+    assert verify(stored, "html", checks).verified
+    assert not verify(before, "html", checks).verified
+
+
+def test_added_formatting_needs_the_markup_stored() -> None:
+    before = "<p>ab</p>"
+    edits = [Edit("a", "<b>a</b>")]
+    after = apply_edits(before, edits).text
+    checks = checks_for_edits(before, after, edits, "html")
+    assert verify('<p id="bkmrk-ab"><b>a</b>b</p>', "html", checks).verified
+    # Same visible text, but the formatting was not stored.
+    assert not verify(before, "html", checks).verified
+
+
+def test_markup_compare_undoes_bookstack_rewrites() -> None:
+    sent = "<p>caf&eacute; <br/> <a href='x'>l</a></p><hr/>"
+    stored = '<p id="bkmrk-caf">café <br> <a href="x">l</a></p><hr id="bkmrk-">'
+    assert contains(stored, sent, "html")
