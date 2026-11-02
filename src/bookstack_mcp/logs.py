@@ -71,8 +71,8 @@ class JsonFormatter(logging.Formatter):
                 entry[key] = value
         if record.exc_info and record.exc_info[1] is not None:
             exc = record.exc_info[1]
+            # Type only: exception messages can carry URLs with query strings or page text.
             entry["exc_type"] = type(exc).__name__
-            entry["exc_message"] = str(exc)
         return json.dumps(entry, default=str, ensure_ascii=False)
 
 

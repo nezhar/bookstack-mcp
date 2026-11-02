@@ -68,19 +68,20 @@ def test_path_loses_its_query_string(capsys: pytest.CaptureFixture[str]) -> None
     assert last_entry(capsys)["path"] == "/api/pages"
 
 
-def test_exceptions_have_type_and_message_only(capsys: pytest.CaptureFixture[str]) -> None:
+def test_exceptions_have_type_only(capsys: pytest.CaptureFixture[str]) -> None:
     setup_logging("INFO")
     local_secret = "local-variable-value"  # noqa: S105
     try:
-        raise RuntimeError("boom")
+        raise RuntimeError("GET https://docs.example/api/search?query=confidential failed")
     except RuntimeError:
         logging.getLogger("t").exception("failed")
     captured = capsys.readouterr()
     assert local_secret not in captured.err
     assert "Traceback" not in captured.err
+    assert "confidential" not in captured.err
     entry = json.loads(captured.err.strip().splitlines()[-1])
     assert entry["exc_type"] == "RuntimeError"
-    assert entry["exc_message"] == "boom"
+    assert "exc_message" not in entry
 
 
 def test_setup_is_idempotent(capsys: pytest.CaptureFixture[str]) -> None:
