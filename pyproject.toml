@@ -44,6 +44,10 @@ target-version = "py312"
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "S", "RUF"]
 
+[tool.ruff.lint.flake8-bugbear]
+# Dependency-injection defaults in tool signatures: `deps: Deps = CurrentDeps()`.
+extend-immutable-calls = ["bookstack_mcp.tools.CurrentDeps", "fastmcp.dependencies.Depends"]
+
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101"]
 
