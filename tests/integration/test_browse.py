@@ -119,7 +119,7 @@ async def test_library_lists_shelf_and_book(mcp: Client[Any], library: Library) 
 
 
 async def test_name_contains_finds_book_by_fragment(mcp: Client[Any], library: Library) -> None:
-    data = await _browse(mcp, name_contains=f"browse-{library.tag[4:20]}")
+    data = await _browse(mcp, name_contains=f"browse-{library.tag[:16]}")
     assert library.book_id in [b["id"] for b in data["books"]["items"]]
 
 
