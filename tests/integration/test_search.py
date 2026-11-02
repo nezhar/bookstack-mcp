@@ -96,7 +96,8 @@ async def test_tag_filter_finds_the_tagged_page(
 
 async def test_type_filter_and_word(bookstack: BookStackInstance, corpus: Corpus) -> None:
     async with _mcp(bookstack, bookstack.admin) as mcp:
-        data = await _search(mcp, query=f"{{type:page}} {corpus.word} -draft")
+        # Plain words are OR'ed in BookStack and can't be negated; a phrase can.
+        data = await _search(mcp, query=f'{{type:page}} {corpus.word} -"draft"')
     assert [r["id"] for r in data["results"]] == [corpus.plain_id]
     assert data["total"] == 1
     assert data["has_more"] is False
