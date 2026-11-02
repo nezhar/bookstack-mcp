@@ -1,6 +1,8 @@
 """BookStackClient against a real BookStack."""
 
+import struct
 import uuid
+import zlib
 from collections.abc import AsyncIterator
 
 import pytest
@@ -9,6 +11,7 @@ from bookstack_mcp.client import (
     BookStackClient,
     BookStackForbidden,
     BookStackNotFound,
+    BookStackResponseTooLarge,
     BookStackValidationError,
     parse_version,
 )
@@ -82,3 +85,67 @@ async def test_system_returns_a_version(admin: BookStackClient, viewer: BookStac
     assert info.links.page(1) == f"{info.base_url.rstrip('/')}/link/1"
     # Any user with API access may call it.
     assert (await viewer.system()).version == info.version
+
+
+def _png() -> bytes:
+    """A valid 1x1 PNG, built by hand so the tests need no image library."""
+
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        body = kind + data
+        return struct.pack(">I", len(data)) + body + struct.pack(">I", zlib.crc32(body))
+
+    header = struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0)
+    pixels = zlib.compress(b"\x00\xff\x00\x00")
+    return (
+        b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", header) + chunk(b"IDAT", pixels) + chunk(b"IEND", b"")
+    )
+
+
+async def test_json_write_update_and_delete(admin: BookStackClient, sandbox_book: int) -> None:
+    page = await admin.post_json(
+        "/pages", {"book_id": sandbox_book, "name": "Client write", "markdown": "# Hi\n\nBody"}
+    )
+    renamed = await admin.put_json(f"/pages/{page['id']}", {"name": "Client renamed"})
+    assert renamed["name"] == "Client renamed"
+    listed = await admin.list_page("/pages", filters={"book_id": sandbox_book})
+    assert [p["id"] for p in listed.data] == [page["id"]]
+    assert listed.total == 1
+    await admin.delete(f"/pages/{page['id']}")
+    with pytest.raises(BookStackNotFound):
+        await admin.get_json(f"/pages/{page['id']}")
+
+
+async def test_text_and_binary_exports(admin: BookStackClient, sandbox_book: int) -> None:
+    page = await admin.post_json(
+        "/pages", {"book_id": sandbox_book, "name": "Export me", "markdown": "Café body"}
+    )
+    markdown = await admin.get_text(f"/pages/{page['id']}/export/markdown")
+    assert "Café body" in markdown
+    plain = await admin.get_text(f"/pages/{page['id']}/export/plaintext")
+    assert "Café body" in plain
+    pdf = await admin.get_bytes(f"/pages/{page['id']}/export/pdf", max_bytes=10_000_000)
+    assert pdf.startswith(b"%PDF")
+    with pytest.raises(BookStackResponseTooLarge):
+        await admin.get_bytes(f"/pages/{page['id']}/export/pdf", max_bytes=100)
+
+
+async def test_multipart_upload_and_put_override(admin: BookStackClient, sandbox_book: int) -> None:
+    page = await admin.post_json(
+        "/pages", {"book_id": sandbox_book, "name": "With image", "markdown": "x"}
+    )
+    image = await admin.post_multipart(
+        "/image-gallery",
+        {"type": "gallery", "uploaded_to": page["id"], "name": "pixel"},
+        {"image": ("pixel.png", _png(), "image/png")},
+    )
+    assert image["name"] == "pixel"
+    assert image["uploaded_to"] == page["id"]
+    # A file update goes as POST with _method=PUT; BookStack then treats it as an update.
+    book = await admin.post_multipart(
+        f"/books/{sandbox_book}",
+        {"name": "Book with cover"},
+        {"image": ("cover.png", _png(), "image/png")},
+        method_override="PUT",
+    )
+    assert book["name"] == "Book with cover"
+    assert book["cover"] is not None
