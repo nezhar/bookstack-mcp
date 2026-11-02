@@ -14,6 +14,7 @@ from bookstack_mcp.client.errors import (
 )
 from bookstack_mcp.client.http import BookStackClient, ListPage, SystemInfo
 from bookstack_mcp.client.links import Links
+from bookstack_mcp.client.retry import RetryPolicy
 from bookstack_mcp.client.version import Features, Version, parse_version
 
 __all__ = [
@@ -31,6 +32,7 @@ __all__ = [
     "Features",
     "Links",
     "ListPage",
+    "RetryPolicy",
     "SystemInfo",
     "Version",
     "parse_version",

@@ -1,5 +1,6 @@
 """BookStackClient against a real BookStack."""
 
+import asyncio
 import struct
 import uuid
 import zlib
@@ -149,3 +150,17 @@ async def test_multipart_upload_and_put_override(admin: BookStackClient, sandbox
     )
     assert book["name"] == "Book with cover"
     assert book["cover"] is not None
+
+
+async def test_twenty_quick_reads_all_succeed(bookstack: BookStackInstance) -> None:
+    # Past the burst of 10, the limiter paces the rest instead of letting BookStack throttle.
+    async with BookStackClient(
+        bookstack.base_url,
+        bookstack.admin.token_id,
+        bookstack.admin.token_secret,
+        requests_per_minute=150,
+    ) as client:
+        results = await asyncio.gather(
+            *(client.get_json("/books", {"count": 1}) for _ in range(20))
+        )
+    assert all("data" in r for r in results)

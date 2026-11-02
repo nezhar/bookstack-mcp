@@ -21,6 +21,7 @@ from bookstack_mcp.client import (
     BookStackValidationError,
 )
 from bookstack_mcp.client.errors import parse_error_body, parse_retry_after
+from bookstack_mcp.client.retry import RetryPolicy
 
 SECRET = "tsecret-do-not-leak"  # noqa: S105 - fake token
 
@@ -31,8 +32,13 @@ def client_for(response: httpx2.Response | Exception) -> BookStackClient:
             raise response
         return response
 
+    # One attempt only: these tests are about error mapping; retries are in test_client_retry.
     return BookStackClient(
-        "https://docs.example.com", "tid", SECRET, transport=httpx2.MockTransport(handler)
+        "https://docs.example.com",
+        "tid",
+        SECRET,
+        transport=httpx2.MockTransport(handler),
+        retry=RetryPolicy(max_attempts=1),
     )
 
 

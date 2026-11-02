@@ -1,11 +1,13 @@
 """The async BookStack API client.
 
-Every request goes through ``BookStackClient._request``, which sends one HTTP request, logs it
-and maps errors. Retries and rate limiting (BSM-6) belong there and nowhere else.
+Every request goes through ``BookStackClient._request``: it waits for a rate-limit token, sends
+the request, logs it, maps errors, and retries what the retry policy allows. Retries and rate
+limiting belong there and nowhere else.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import ssl
@@ -27,6 +29,14 @@ from bookstack_mcp.client.errors import (
     error_for_status,
 )
 from bookstack_mcp.client.links import Links
+from bookstack_mcp.client.ratelimit import (
+    DEFAULT_BURST,
+    DEFAULT_REQUESTS_PER_MINUTE,
+    Clock,
+    Sleep,
+    TokenBucket,
+)
+from bookstack_mcp.client.retry import RetryPolicy
 from bookstack_mcp.client.version import Features, Version, parse_version
 
 logger = logging.getLogger(__name__)
@@ -153,6 +163,9 @@ class BookStackClient:
     ``base_url`` is the instance URL without ``/api``; ``path`` arguments are relative to
     ``/api`` (``"/pages/12"``). Use as ``async with BookStackClient(...) as client`` or call
     ``aclose()``.
+
+    ``requests_per_minute`` sets the client-side rate limit (burst 10); ``retry`` the retry
+    policy. ``clock`` and ``sleep`` drive both and exist so tests need not wait for real.
     """
 
     def __init__(
@@ -165,6 +178,10 @@ class BookStackClient:
         verify: bool | str | PathLike[str] | ssl.SSLContext = True,
         user_agent: str | None = None,
         transport: httpx2.AsyncBaseTransport | None = None,
+        requests_per_minute: int = DEFAULT_REQUESTS_PER_MINUTE,
+        retry: RetryPolicy | None = None,
+        clock: Clock = time.monotonic,
+        sleep: Sleep = asyncio.sleep,
     ) -> None:
         secret = token_secret if isinstance(token_secret, str) else token_secret.get_secret_value()
         self.base_url = base_url.rstrip("/")
@@ -179,6 +196,11 @@ class BookStackClient:
             verify=_ssl_verify(verify),
             follow_redirects=False,
             transport=transport,
+        )
+        self._retry = retry or RetryPolicy()
+        self._sleep = sleep
+        self._limiter = TokenBucket(
+            requests_per_minute, burst=DEFAULT_BURST, clock=clock, sleep=sleep
         )
 
     def __repr__(self) -> str:
@@ -211,12 +233,61 @@ class BookStackClient:
         files: Mapping[str, FileSpec] | None = None,
         max_bytes: int | None = None,
     ) -> RawResponse:
-        """Send one request and return the response, or raise a ``BookStackError``.
+        """Send a request and return the response, or raise a ``BookStackError``.
 
-        Logs one line with method, path (no query), status and duration. With ``max_bytes`` the
-        body is streamed and the read stops with ``BookStackResponseTooLarge`` past the limit.
+        Each attempt first takes a token from the rate limiter. A failed attempt is retried as
+        ``RetryPolicy`` allows: 429 for any method, 5xx, connection errors and timeouts only for
+        GET, HEAD and OPTIONS. An upload is retried only if every file stream can be rewound.
+        Logs one line per attempt and one per retry. With ``max_bytes`` the body is streamed and
+        the read stops with ``BookStackResponseTooLarge`` past the limit.
         """
         api_path = _api_path(path)
+        file_positions = _file_positions(files)
+        waited_s = 0.0
+        attempt = 1
+        while True:
+            await self._limiter.acquire()
+            try:
+                return await self._send(
+                    method,
+                    api_path,
+                    attempt,
+                    params=params,
+                    json=json,
+                    data=data,
+                    files=files,
+                    max_bytes=max_bytes,
+                )
+            except BookStackError as error:
+                delay = self._retry.delay(method, error, attempt, waited_s)
+                if delay is None or not _rewind_files(files, file_positions):
+                    raise
+                extra: dict[str, Any] = {
+                    "method": method,
+                    "path": api_path,
+                    "attempt": attempt,
+                    "retry_in_ms": round(delay * 1000),
+                }
+                if error.status is not None:
+                    extra["status"] = error.status
+                logger.info("bookstack retry", extra=extra)
+                await self._sleep(delay)
+                waited_s += delay
+                attempt += 1
+
+    async def _send(
+        self,
+        method: str,
+        api_path: str,
+        attempt: int,
+        *,
+        params: Mapping[str, str] | None,
+        json: Any,
+        data: Mapping[str, str] | None,
+        files: Mapping[str, FileSpec] | None,
+        max_bytes: int | None,
+    ) -> RawResponse:
+        """One attempt: send, read, map errors, and log one line."""
         started = time.monotonic()
         status: int | None = None
         try:
@@ -243,6 +314,7 @@ class BookStackClient:
                 "method": method,
                 "path": api_path,
                 "duration_ms": duration_ms,
+                "attempt": attempt,
             }
             if status is not None:
                 extra["status"] = status
@@ -324,6 +396,43 @@ class BookStackClient:
                 "GET /api/system returned an unexpected body.",
                 hint="Check that BOOKSTACK_URL points at a BookStack instance.",
             ) from None
+
+
+def _file_stream(spec: FileSpec) -> IO[bytes] | None:
+    content = spec[1] if isinstance(spec, tuple) else spec
+    return None if isinstance(content, bytes) else content
+
+
+def _file_positions(files: Mapping[str, FileSpec] | None) -> dict[str, int | None]:
+    """Where each file stream starts, so a retry can rewind it; ``None`` if it cannot seek."""
+    positions: dict[str, int | None] = {}
+    for name, spec in (files or {}).items():
+        stream = _file_stream(spec)
+        if stream is None:
+            continue
+        try:
+            positions[name] = stream.tell() if stream.seekable() else None
+        except (OSError, ValueError):
+            positions[name] = None
+    return positions
+
+
+def _rewind_files(
+    files: Mapping[str, FileSpec] | None, positions: Mapping[str, int | None]
+) -> bool:
+    """Rewind every file stream for a resend. ``False`` if one cannot be rewound: a stream that
+    has been read cannot be sent again, so the request must not be retried."""
+    for name, position in positions.items():
+        if position is None:
+            return False
+        stream = _file_stream((files or {})[name])
+        if stream is None:
+            continue
+        try:
+            stream.seek(position)
+        except (OSError, ValueError):
+            return False
+    return True
 
 
 async def _read_limited(
