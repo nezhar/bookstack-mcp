@@ -235,23 +235,27 @@ def bookstack(request: pytest.FixtureRequest) -> Iterator[BookStackInstance]:
     if shutil.which("docker") is None:
         pytest.fail("RUN_INTEGRATION=1 but the docker CLI is not on PATH", pytrace=False)
 
-    _compose("up", "-d")
-    _wait_for_boot()
+    # Tear down in a finally so a failed boot or provisioning still honours BSMCP_IT_DOWN.
+    setup_failed = True
+    try:
+        _compose("up", "-d")
+        _wait_for_boot()
 
-    instance = BookStackInstance(base_url=BASE_URL, admin=ADMIN, viewer=VIEWER)
-    _provision_token(ADMIN_EMAIL, ADMIN)
-    with instance.client(ADMIN) as admin:
-        _expect(api(admin, "GET", "/books", params={"count": 1}), 200)
-        _ensure_viewer(admin)
-    _provision_token(VIEWER_EMAIL, VIEWER)
+        instance = BookStackInstance(base_url=BASE_URL, admin=ADMIN, viewer=VIEWER)
+        _provision_token(ADMIN_EMAIL, ADMIN)
+        with instance.client(ADMIN) as admin:
+            _expect(api(admin, "GET", "/books", params={"count": 1}), 200)
+            _ensure_viewer(admin)
+        _provision_token(VIEWER_EMAIL, VIEWER)
+        setup_failed = False
 
-    yield instance
-
-    if os.environ.get("BSMCP_IT_DOWN") == "1":
-        # The stack is about to go; keep the BookStack logs of a failed run.
-        if request.session.testsfailed:
-            _dump_logs(request.config)
-        _compose("down", "-v", check=False)
+        yield instance
+    finally:
+        if os.environ.get("BSMCP_IT_DOWN") == "1":
+            # The stack is about to go; keep the BookStack logs of a failed run.
+            if setup_failed or request.session.testsfailed:
+                _dump_logs(request.config)
+            _compose("down", "-v", check=False)
 
 
 @pytest.fixture(scope="session")
