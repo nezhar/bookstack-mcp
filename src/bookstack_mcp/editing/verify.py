@@ -62,10 +62,15 @@ class Removed:
 
 @dataclass(frozen=True, slots=True)
 class Checks:
-    """Fragments that must appear in the stored text, and removed fragments that must not."""
+    """Fragments that must appear in the stored text, and removed fragments that must not.
+
+    ``must_equal`` is for a full replacement: the stored text must be that text, allowing
+    for BookStack's rewrites (whitespace, and for HTML ids, ``/>`` endings and quoting).
+    """
 
     must_contain: list[str]
     must_not_contain: list[Removed]
+    must_equal: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -140,7 +145,8 @@ def verify(stored: str, field: SourceField, checks: Checks) -> Verification:
     """Run ``checks`` against the source read back after the write. Never raises."""
     missing = sum(1 for f in checks.must_contain if not contains(stored, f, field))
     present = sum(1 for r in checks.must_not_contain if _count(stored, r, field) > r.remaining)
-    failures = missing + present
+    differs = checks.must_equal is not None and not _equal(stored, checks.must_equal, field)
+    failures = missing + present + int(differs)
     return Verification(failures == 0, failures)
 
 
@@ -154,6 +160,12 @@ def _count(text: str, removed: Removed, field: SourceField) -> int:
     if field == "html":
         return _markup(text).count(_markup(removed.fragment))
     return _collapse(text).count(needle)
+
+
+def _equal(stored: str, sent: str, field: SourceField) -> bool:
+    if field == "html":
+        return _markup(stored) == _markup(sent)
+    return _collapse(stored) == _collapse(sent)
 
 
 def _collapse(text: str) -> str:
