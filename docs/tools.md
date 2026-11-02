@@ -203,13 +203,15 @@ the user who did it. Drafts are left out. Use `book_id` to look at one book.
 Search pages, chapters, books and shelves. Give at most one of book_id, chapter_id.
 
 Query syntax:
-- Terms are combined with AND; "exact phrase" matches a phrase; -term excludes a term.
+- Plain words match any of them (OR), best matches first; they cannot be excluded.
+- "exact phrase" must appear in the name or content; -"phrase" excludes it.
 - Tags: [name] or [name=value], with operators =, !=, &lt;, &gt;, &lt;=, &gt;= and like,
-  e.g. [status=draft] or [review like 2026%].
+  e.g. [status=draft] or [review like 2026%]; -[status=draft] excludes.
 - Filters in braces: {type:page|chapter}, {in_name:term}, {in_body:term},
   {created_by:me}, {updated_by:me}, {owned_by:me}, {created_after:2026-10-01},
   {updated_before:2026-01-01}, {is_template}, {is_restricted}, {viewed_by_me},
-  {not_viewed_by_me}, {sort_by:last_commented}.
+  {not_viewed_by_me}, {sort_by:last_commented}; -{filter} negates one.
+- Phrases, tags and filters must all match.
 - BookStack silently drops an unknown {filter}, so the query then matches more than
   intended. The shelf type is bookshelf, not shelf.
 
