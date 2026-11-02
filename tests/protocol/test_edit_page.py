@@ -7,6 +7,7 @@ stores is proven by tests/integration/test_edit_page.py.
 from __future__ import annotations
 
 import json
+import logging
 import re
 from typing import Any
 
@@ -229,6 +230,25 @@ async def test_ambiguous_anchor_lists_the_first_three_matches(
     assert "4. " not in message
     assert "replace_all" in message
     assert fake_bookstack.puts == []
+
+
+async def test_ambiguous_anchor_excerpts_stay_out_of_the_logs(
+    make_server: MakeServer, fake_bookstack: PageStore, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.DEBUG)
+    fake_bookstack.page(7, markdown="salary of Ann: 91k TODO\n\nsalary of Bob: 87k TODO")
+    result = await call(
+        make_server(tools=[edit_page]),
+        page_id=7,
+        edits=[{"old_string": "TODO", "new_string": "done"}],
+    )
+    assert result.is_error
+    assert "91k" in result.content[0].text  # the caller sees the excerpts
+    assert caplog.records
+    for record in caplog.records:
+        logged = record.getMessage() + repr(record.__dict__)
+        assert "91k" not in logged
+        assert "87k" not in logged
 
 
 async def test_missing_anchor_shows_the_near_miss(
