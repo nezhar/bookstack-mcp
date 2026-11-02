@@ -1,0 +1,42 @@
+name: Integration
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: integration-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  bookstack:
+    name: BookStack ${{ matrix.bookstack-image-tag }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        bookstack-image-tag:
+          - version-v26.09.2
+          - version-v26.05.5
+    env:
+      BOOKSTACK_IMAGE_TAG: ${{ matrix.bookstack-image-tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Integration tests
+        run: RUN_INTEGRATION=1 BSMCP_IT_DOWN=1 uv run pytest tests/integration -m integration
+
+      - name: BookStack logs
+        if: failure()
+        run: docker compose -f tests/integration/compose.yml -p bsmcp-it logs bookstack
