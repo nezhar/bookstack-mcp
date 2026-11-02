@@ -1,0 +1,1 @@
+"""SSRF-guarded URL fetcher."""
