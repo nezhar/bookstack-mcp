@@ -14,10 +14,13 @@ All code lives under `src/bookstack_mcp/`:
 - `config.py` reads settings from environment variables (see `.env.example`).
 - `logs.py` writes JSON logs to stderr.
 - `client/` is the async BookStack API client on httpx2: auth, errors, retries, rate limit.
-- `tools/` holds one module per toolset: `core_read.py`, `core_write.py`, `structure.py`, `collab.py`, `files.py`, `admin.py`. `tools/_base.py` has the `@tool` decorator, `Deps` and the error mapping; see "Writing a tool" below.
+- `tools/` holds one module per tool, named after it (`search.py`, `read_page.py`, `edit_page.py`, ...); the toolset comes from the `@tool(...)` decorator, not the module. Related tools may share a module. `tools/_base.py` has the `@tool` decorator, `Deps` and the error mapping; `tools/page_write.py` is the shared verified write path for page edits (stale check, shrink guard, write, re-read, verify). See "Writing a tool" below.
 - `editing/` holds pure functions for page source, outline, grep, find-and-replace, append and verification.
-- `content/` builds the markdown view and chunks.
+- `content/` builds the markdown view (`markdown_view.py`) and chunks (`chunk.py`).
 - `fetch/` is the SSRF-guarded URL fetcher.
+
+Outside the package: `scripts/gen_tool_docs.py` generates `docs/tools.md`, the tool reference,
+from the server itself.
 
 Tests:
 
@@ -36,9 +39,11 @@ uv run mypy                                     # type-check (strict)
 uv run pytest tests/unit tests/protocol         # fast tests
 RUN_INTEGRATION=1 uv run pytest tests/integration  # needs Docker; the fixture starts BookStack
 uv run bookstack-mcp                            # run the server over stdio
+uv run bookstack-mcp check                      # test the configuration against BookStack
+uv run python scripts/gen_tool_docs.py          # regenerate docs/tools.md
 ```
 
-CI runs ruff, mypy, the unit and protocol tests, `pip-audit` and a TruffleHog secret scan on every pull request.
+CI runs ruff, mypy, the unit and protocol tests, `pip-audit` and a TruffleHog secret scan on every pull request, and fails when `docs/tools.md` differs from what `scripts/gen_tool_docs.py` generates. The integration workflow runs the integration tests against both supported BookStack versions, then the README's quick start (`bookstack-mcp check`) against the same instance.
 
 ## Conventions
 
@@ -48,6 +53,8 @@ CI runs ruff, mypy, the unit and protocol tests, `pip-audit` and a TruffleHog se
 - Never write to stdout: in stdio mode it carries only MCP messages. Log with `logging`, which goes to stderr.
 - Never log page content, markdown, HTML, file data, tokens, secrets, passwords or query strings.
 - Errors reach the model as FastMCP `ToolError`, stating what failed, BookStack's message, and how to fix it.
+- After adding or changing a tool (name, docstring, inputs, toolset, annotations, `needs`), resource or prompt, run `uv run python scripts/gen_tool_docs.py` and commit `docs/tools.md`. Never edit that file by hand.
+- Every new setting goes into the README's configuration table and `.env.example`, with its default and meaning.
 
 ### Writing a tool
 

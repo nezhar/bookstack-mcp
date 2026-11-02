@@ -54,7 +54,7 @@ extend-immutable-calls = ["bookstack_mcp.tools.CurrentDeps", "fastmcp.dependenci
 [tool.mypy]
 strict = true
 plugins = ["pydantic.mypy"]
-files = ["src"]
+files = ["src", "scripts"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
