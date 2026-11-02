@@ -56,7 +56,8 @@ def preview_text(preview_html: Any) -> str:
     content = preview_html.get("content")
     if not isinstance(content, str):
         return ""
-    text = _SPACE.sub(" ", html.unescape(_TAG.sub(" ", content))).strip()
+    # BookStack marks matches with <strong> inside words too, so tags go without a space.
+    text = _SPACE.sub(" ", html.unescape(_TAG.sub("", content))).strip()
     if len(text) > PREVIEW_MAX_CHARS:
         text = text[: PREVIEW_MAX_CHARS - 1].rstrip() + "…"
     return text

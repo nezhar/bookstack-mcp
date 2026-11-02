@@ -149,6 +149,11 @@ async def test_bookstack_error_is_mapped(
     assert "Book not found" in result.content[0].text
 
 
+def test_preview_keeps_highlighted_words_whole() -> None:
+    content = "Call <strong>get</strong>_json() on https://x.test/<strong>api</strong>/pages"
+    assert preview_text({"content": content}) == "Call get_json() on https://x.test/api/pages"
+
+
 def test_preview_is_capped() -> None:
     text = preview_text({"content": "<p>" + "word " * 200 + "</p>"})
     assert len(text) <= 300
