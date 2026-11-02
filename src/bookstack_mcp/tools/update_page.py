@@ -175,7 +175,7 @@ async def update_page(
                         "allow_format_change=true to convert it."
                     )
                 converted.append(source.field)
-            return PageChange(content_text, Checks([content_text], []), field=field)
+            return PageChange(content_text, Checks([], [], must_equal=content_text), field=field)
 
         content = await write_page(
             deps,

@@ -182,3 +182,16 @@ def test_markup_compare_undoes_bookstack_rewrites() -> None:
     sent = "<p>caf&eacute; <br/> <a href='x'>l</a></p><hr/>"
     stored = '<p id="bkmrk-caf">café <br> <a href="x">l</a></p><hr id="bkmrk-">'
     assert contains(stored, sent, "html")
+
+
+def test_full_replacement_must_equal_the_stored_text() -> None:
+    checks = Checks([], [], must_equal="Keep this.")
+    assert verify("Keep this.\n", "markdown", checks).verified
+    # The old text is still there: the replacement did not land.
+    assert not verify("Keep this. Delete this.", "markdown", checks).verified
+
+
+def test_full_html_replacement_detects_unchanged_attributes() -> None:
+    checks = Checks([], [], must_equal='<p><a href="new">Link</a></p><br/>')
+    assert verify('<p id="bkmrk-link"><a href="new">Link</a></p><br>', "html", checks).verified
+    assert not verify('<p id="bkmrk-link"><a href="old">Link</a></p><br>', "html", checks).verified
