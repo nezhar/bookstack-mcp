@@ -6,7 +6,7 @@ What an assistant can do with it:
 
 - **Find:** full-text search with BookStack's query syntax (tags, filters, scoped to a book or chapter), browse shelves, books and chapters, list tags and recently changed pages.
 - **Read:** pages as markdown, as a heading outline or as their stored source, in chunks, by section, or grep for exact text.
-- **Write:** create pages, change part of a page by exact find-and-replace, append to a page or a section, rename, move, retag or replace a page. Every edit can be previewed with a dry run, refuses to overwrite a page changed since it was read, refuses to shrink a page by more than half unless told to, and re-reads the page to verify the write.
+- **Write:** create pages, change part of a page by exact find-and-replace, append to a page or a section, rename, move, retag or replace a page. Every edit can be previewed with a dry run, refuses to shrink a page by more than half unless told to, and re-reads the page to verify the write. Passing the `updated_at` from the read as `expected_updated_at` makes an edit refuse a page that changed since; this is a check before the write, not a lock, because BookStack has no conditional update.
 
 The [tool reference](docs/tools.md) lists every tool with its inputs. It is generated from the server, so it is always current.
 
