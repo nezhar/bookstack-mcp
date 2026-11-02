@@ -165,3 +165,32 @@ def test_find_section_not_found_lists_headings() -> None:
 def test_find_section_on_page_without_headings() -> None:
     with pytest.raises(SectionNotFound, match="no headings"):
         find_section([], "x")
+
+
+def test_indented_atx_heading_is_found() -> None:
+    text = "# First\n\n   ## Second\n\n    # code, not a heading\n"
+    assert [(h.level, h.text) for h in build_outline(text, "markdown")] == [
+        (1, "First"),
+        (2, "Second"),
+    ]
+
+
+def test_setext_headings_are_found_with_their_offsets() -> None:
+    text = "Intro\n\nFirst\n=====\n\nbody\n\nSecond\n---\n\nmore\n\n---\n\n- item\n---\n"
+    outline = build_outline(text, "markdown")
+    assert [(h.level, h.text) for h in outline] == [(1, "First"), (2, "Second")]
+    assert text[outline[0].offset :].startswith("First\n=====")
+    assert text[outline[1].offset :].startswith("Second\n---")
+    assert outline[0].section_length == len(text) - outline[0].offset
+    assert find_section(outline, "second") is outline[1]
+
+
+def test_setext_underline_inside_code_fence_is_ignored() -> None:
+    text = "```\nTitle\n=====\n```\n"
+    assert build_outline(text, "markdown") == []
+
+
+def test_code_span_in_heading_keeps_its_content() -> None:
+    outline = build_outline("# Using `List<T>` and `&amp;`\n\n## a<b>c</b>d\n", "markdown")
+    assert [h.text for h in outline] == ["Using `List<T>` and `&amp;`", "acd"]
+    assert find_section(outline, "List<T>") is outline[0]
